@@ -7,19 +7,19 @@ use axum::{Extension, Json};
 
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
-use rand::SeedableRng;
+use rand::{SeedableRng, RngCore};
 
 use tokio::sync::Mutex;
 
 type SharedState = Arc<Mutex<SmallRng>>;
 
-struct Lotto<'a> {
+struct Lotto<'a, R: RngCore> {
     pot: Vec<u32>,
-    rng: &'a mut SmallRng,
+    rng: &'a mut R,
 }
 
-impl<'a> Lotto<'a> {
-    fn new(pot_size: u32, rng: &'a mut SmallRng) -> Self {
+impl<'a, R: RngCore> Lotto<'a, R> {
+    fn new(pot_size: u32, rng: &'a mut R) -> Self {
         Self {
             pot: (1..=pot_size).collect(),
             rng,
@@ -41,14 +41,16 @@ async fn generate_lotto_handler(
     Extension(state): Extension<SharedState>
 ) -> impl IntoResponse {
     let mut rng = state.lock().await;
-    let mut lotto = Lotto::new(pot_size, &mut rng);
+    let mut lotto: Lotto<'_, SmallRng> = Lotto::new(pot_size, &mut rng);
     let result = lotto.take(amount);
     Json(result)
 }
 
 #[shuttle_runtime::main]
 async fn axum() -> shuttle_axum::ShuttleAxum {
-    let state = Arc::new(Mutex::new(SmallRng::from_entropy()));
+    let state = Arc::new(
+        Mutex::new(SmallRng::from_entropy())
+    );
     let router = Router::new()
         .route("/lotto/:pot/:amount", get(generate_lotto_handler))
         .layer(Extension(state));
